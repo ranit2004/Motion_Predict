@@ -13,219 +13,128 @@ import mqttService, { SensorData, MQTTConfig } from '@/services/mqttService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { createClient } from '@supabase/supabase-js';
 
-// ✅ Hardcoded Supabase setup (your URL and Anon Key)
 const supabaseUrl = 'https://bcruadamezzuczadbksn.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjcnVhZGFtZXp6dWN6YWRia3NuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MTU3MjUsImV4cCI6MjA1OTE5MTcyNX0.DXoH7OUFiDEvL03f0BGse1ETW0iUKX7DmV52WA5lWO0';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJjcnVhZGFtZXp6dWN6YWRia3NuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MzYxNTcyNSwiZXhwIjoyMDU5MTkxNzI1fQ.nQlKsuFwkOXuP3lnJTN15w6u0pK_V26ah-VnwOy5W1k';  //API Key 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Default activities
-const DEFAULT_ACTIVITIES = ['standing', 'sitting', 'walking'];
+const DEFAULT_ACTIVITIES = ['standing', 'sitting', 'walking','running','upstairs','downstairs'];
+const SUB_ACTIVITIES: Record<string, string[]> = {
+  standing: ['None','standing-eating', 'standing-calling'],
+  sitting: ['None','sitting-working', 'sitting-relaxing'],
+  walking: ['None','walking-fast', 'walking-slow'],
+  running: ['None','running-fast' , 'running-slow'],
+};
 
 const DataCollectionForm = () => {
   const [selectedActivity, setSelectedActivity] = useState<string>('');
+  const [selectedSubActivity, setSelectedSubActivity] = useState<string>('');
   const [newActivity, setNewActivity] = useState<string>('');
   const [activities, setActivities] = useState<string[]>(DEFAULT_ACTIVITIES);
   const [isCollecting, setIsCollecting] = useState<boolean>(false);
-  const [sensorData, setSensorData] = useState<SensorData[]>([]);
+  const [sensorData, setSensorData] = useState<any[]>([]);
   const [showNewActivityInput, setShowNewActivityInput] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const chartDataRef = useRef<SensorData[]>([]);
+  const chartDataRef = useRef<any[]>([]);
+  const activityRef = useRef<string>('');
+  const subActivityRef = useRef<string>('');
   const { toast } = useToast();
 
-  // Configure MQTT
   useEffect(() => {
     const config: MQTTConfig = {
-      brokerUrl: 'ws://192.168.0.141:9001', 
+      brokerUrl: 'ws://192.168.0.141:9001',
       clientId: `motionsense_${Date.now()}`,
-      topic: 'sensor/nodejs'
-    }
-    mqttService.configure(config);
-
-    return () => {
-      mqttService.disconnect();
+      topic: 'sensor/nodejs',
     };
+    mqttService.configure(config);
+    return () => mqttService.disconnect();
   }, []);
 
-  // Handle received sensor data
+  useEffect(() => {
+    activityRef.current = selectedActivity;
+  }, [selectedActivity]);
+
+  useEffect(() => {
+    subActivityRef.current = selectedSubActivity;
+  }, [selectedSubActivity]);
+
   const handleSensorData = (data: SensorData) => {
-    const updatedData = [...chartDataRef.current, data];
-    if (updatedData.length > 20) {
-      chartDataRef.current = updatedData.slice(updatedData.length - 20);
-    } else {
-      chartDataRef.current = updatedData;
-    }
+    const taggedData = {
+      ...data,
+      activity: activityRef.current,
+      subActivity: subActivityRef.current,
+    };
+    chartDataRef.current.push(taggedData);
     setSensorData([...chartDataRef.current]);
   };
 
-  // Start data collection
   const startCollection = async () => {
-    if (!selectedActivity) {
-      toast({
-        title: 'Error',
-        description: 'Please select an activity first',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
       await mqttService.connect(handleSensorData);
       setIsCollecting(true);
       chartDataRef.current = [];
       setSensorData([]);
-      toast({
-        title: 'Data Collection Started',
-        description: `Recording data for ${selectedActivity}`,
-      });
-    } catch (error) {
-      toast({
-        title: 'Connection Error',
-        description: 'Failed to connect to MQTT broker',
-        variant: 'destructive',
-      });
+      toast({ title: 'Data Collection Started' });
+    } catch {
+      toast({ title: 'Connection Error', description: 'MQTT broker connection failed', variant: 'destructive' });
     }
   };
 
-  // Stop data collection
   const stopCollection = async () => {
     await mqttService.disconnect();
     setIsCollecting(false);
-    toast({
-      title: 'Data Collection Stopped',
-      description: `Collected ${chartDataRef.current.length} data points for ${selectedActivity}`,
-    });
+    toast({ title: 'Data Collection Stopped', description: `${chartDataRef.current.length} data points recorded.` });
   };
 
-  // const saveData = async () => {
-  //   if (chartDataRef.current.length === 0) {
-  //     toast({
-  //       title: 'No Data',
-  //       description: 'No data has been collected to save',
-  //       variant: 'destructive',
-  //     });
-  //     return;
-  //   }
-
-  //   setIsSaving(true);
-  //   try {
-  //     const { error } = await supabase.from('sensor_data').insert(
-  //       chartDataRef.current.map((point) => ({
-  //         activity: selectedActivity,
-  //         acc_x: point.acceleration.x,
-  //         acc_y: point.acceleration.y,
-  //         acc_z: point.acceleration.z,
-  //         gyro_x: point.gyroscope.x,
-  //         gyro_y: point.gyroscope.y,
-  //         gyro_z: point.gyroscope.z,
-  //         timestamp: new Date().toISOString(),
-  //       }))
-  //     );
-
-  //     if (error) throw error;
-
-  //     toast({
-  //       title: 'Data Saved',
-  //       description: `${chartDataRef.current.length} data points saved for ${selectedActivity}`,
-  //     });
-
-  //     chartDataRef.current = [];
-  //     setSensorData([]);
-
-  //   } catch (error: any) {
-  //     console.error('Save data error:', error.message);
-  //     toast({
-  //       title: 'Save Error',
-  //       description: error.message || 'Failed to save data',
-  //       variant: 'destructive',
-  //     });
-  //   } finally {
-  //     setIsSaving(false);
-  //   }
-  // };
-
-
-// Save collected data to Supabase
   const saveData = async () => {
     if (chartDataRef.current.length === 0) {
-      toast({
-        title: 'No Data',
-        description: 'No data has been collected to save',
-        variant: 'destructive',
-      });
+      toast({ title: 'No Data', description: 'No data to save', variant: 'destructive' });
       return;
     }
-  
     setIsSaving(true);
     try {
       const { error } = await supabase.from('sensor_data').insert(
         chartDataRef.current.map((point) => ({
+          activity: point.activity || null,
+          sub_activity: point.subActivity || null,
           acc_x: point.acceleration.x,
           acc_y: point.acceleration.y,
           acc_z: point.acceleration.z,
           gyro_x: point.gyroscope.x,
           gyro_y: point.gyroscope.y,
           gyro_z: point.gyroscope.z,
-          timestamp: Date.now(), // Save current timestamp in milliseconds
+          timestamp: Date.now(),
         }))
       );
-  
       if (error) throw error;
-  
-      toast({
-        title: 'Data Saved',
-        description: `${chartDataRef.current.length} data points saved.`,
-      });
-  
+      toast({ title: 'Data Saved', description: `${chartDataRef.current.length} data points saved.` });
       chartDataRef.current = [];
       setSensorData([]);
-  
     } catch (error: any) {
-      console.error('Save data error:', error.message);
-      toast({
-        title: 'Save Error',
-        description: error.message || 'Failed to save data',
-        variant: 'destructive',
-      });
+      toast({ title: 'Save Error', description: error.message || 'Failed to save data', variant: 'destructive' });
     } finally {
       setIsSaving(false);
     }
   };
-  
 
-  // Add new activity
   const addNewActivity = () => {
     if (!newActivity.trim()) {
-      toast({
-        title: 'Invalid Activity',
-        description: 'Please enter a valid activity name',
-        variant: 'destructive',
-      });
+      toast({ title: 'Invalid Activity', description: 'Enter a valid name', variant: 'destructive' });
       return;
     }
-
-    if (activities.includes(newActivity.trim().toLowerCase())) {
-      toast({
-        title: 'Activity Exists',
-        description: 'This activity already exists',
-        variant: 'destructive',
-      });
+    const formatted = newActivity.trim().toLowerCase();
+    if (activities.includes(formatted)) {
+      toast({ title: 'Activity Exists', description: 'Already exists', variant: 'destructive' });
       return;
     }
-
-    setActivities([...activities, newActivity.trim().toLowerCase()]);
-    setSelectedActivity(newActivity.trim().toLowerCase());
+    setActivities([...activities, formatted]);
+    setSelectedActivity(formatted);
     setNewActivity('');
     setShowNewActivityInput(false);
-
-    toast({
-      title: 'Activity Added',
-      description: `'${newActivity}' has been added to available activities`,
-    });
+    toast({ title: 'Activity Added', description: `'${formatted}' added.` });
   };
 
-  // Format data for charts
   const formatChartData = (data: SensorData[]) => {
-    return data.map((item, index) => ({
+    return data.slice(-20).map((item, index) => ({
       name: index,
       accX: item.acceleration.x,
       accY: item.acceleration.y,
@@ -241,158 +150,114 @@ const DataCollectionForm = () => {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Data Collection</CardTitle>
-          <CardDescription>Select an activity and collect sensor data from your ESP32 device.</CardDescription>
+          <CardDescription>Choose an activity and sub-activity while collecting data.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+
+          {/* Activity Selection */}
           <div className="space-y-2">
             <Label>Select Activity</Label>
             <div className="flex items-center space-x-2">
               {showNewActivityInput ? (
-                <div className="flex items-center flex-1 space-x-2">
-                  <Input
-                    placeholder="Enter new activity"
-                    value={newActivity}
-                    onChange={(e) => setNewActivity(e.target.value)}
-                  />
+                <div className="flex flex-1 items-center space-x-2">
+                  <Input placeholder="New activity" value={newActivity} onChange={(e) => setNewActivity(e.target.value)} />
                   <Button size="sm" onClick={addNewActivity}>Add</Button>
-                  <Button size="icon" variant="ghost" onClick={() => setShowNewActivityInput(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
+                  <Button size="icon" variant="ghost" onClick={() => setShowNewActivityInput(false)}><X className="h-4 w-4" /></Button>
                 </div>
               ) : (
                 <>
-                  <Select value={selectedActivity} onValueChange={setSelectedActivity} disabled={isCollecting}>
+                  <Select value={selectedActivity} onValueChange={(val) => { setSelectedActivity(val); setSelectedSubActivity(''); }}>
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="Select an activity" />
                     </SelectTrigger>
                     <SelectContent>
                       {activities.map((activity) => (
-                        <SelectItem key={activity} value={activity}>
-                          {activity.charAt(0).toUpperCase() + activity.slice(1)}
-                        </SelectItem>
+                        <SelectItem key={activity} value={activity}>{activity.charAt(0).toUpperCase() + activity.slice(1)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="icon" onClick={() => setShowNewActivityInput(true)} disabled={isCollecting}>
-                    <PlusCircle className="h-4 w-4" />
-                  </Button>
+                  <Button variant="outline" size="icon" onClick={() => setShowNewActivityInput(true)}><PlusCircle className="h-4 w-4" /></Button>
                 </>
               )}
             </div>
           </div>
 
-          <div className="flex space-x-2 flex-wrap">
-            {activities.map((activity) => (
-              <Badge 
-                key={activity} 
-                variant={selectedActivity === activity ? "default" : "outline"}
-                className="cursor-pointer"
-                onClick={() => !isCollecting && setSelectedActivity(activity)}
-              >
-                {activity}
-              </Badge>
-            ))}
-          </div>
+          {/* Sub-Activity Selection */}
+          {selectedActivity && SUB_ACTIVITIES[selectedActivity]?.length > 0 && (
+            <div className="space-y-2">
+              <Label>Select Sub-Activity</Label>
+              <Select value={selectedSubActivity} onValueChange={setSelectedSubActivity}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select a sub-activity" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SUB_ACTIVITIES[selectedActivity].map((sub) => (
+                    <SelectItem key={sub} value={sub}>{sub}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
+          {/* Controls */}
           <div className="flex justify-between">
-            <Button
-              onClick={isCollecting ? stopCollection : startCollection}
-              variant={isCollecting ? "destructive" : "default"}
-              disabled={!selectedActivity && !isCollecting}
-              className="px-4"
-            >
-              {isCollecting ? (
-                <>
-                  <Square className="mr-2 h-4 w-4" /> Stop Recording
-                </>
-              ) : (
-                <>
-                  <Play className="mr-2 h-4 w-4" /> Start Recording
-                </>
-              )}
+            <Button onClick={isCollecting ? stopCollection : startCollection} variant={isCollecting ? 'destructive' : 'default'}>
+              {isCollecting ? <><Square className="mr-2 h-4 w-4" /> Stop</> : <><Play className="mr-2 h-4 w-4" /> Start</>}
             </Button>
-
-            <Button
-              onClick={saveData}
-              variant="outline"
-              disabled={isCollecting || sensorData.length === 0 || isSaving}
-              className="px-4"
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="animate-spin mr-2 h-4 w-4" /> Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" /> Save Data
-                </>
-              )}
+            <Button onClick={saveData} variant="outline" disabled={isCollecting || !sensorData.length || isSaving}>
+              {isSaving ? <><Loader2 className="animate-spin mr-2 h-4 w-4" /> Saving...</> : <><Save className="mr-2 h-4 w-4" /> Save</>}
             </Button>
           </div>
         </CardContent>
       </Card>
 
+      {/* Visualization */}
       <Card>
         <CardHeader>
-          <CardTitle>Sensor Data Visualization</CardTitle>
-          <CardDescription>Real-time data from accelerometer and gyroscope</CardDescription>
+          <CardTitle>Sensor Data</CardTitle>
+          <CardDescription>Accelerometer & Gyroscope data</CardDescription>
         </CardHeader>
         <CardContent>
           {sensorData.length > 0 ? (
-            <div className="data-visualization">
-              <div className="mb-8">
+            <>
+              <div className="mb-6">
                 <h3 className="font-semibold mb-2">Accelerometer</h3>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={formatChartData(sensorData)}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis domain={[-2, 2]} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="accX" stroke="#3B82F6" name="X-Axis" />
-                    <Line type="monotone" dataKey="accY" stroke="#10B981" name="Y-Axis" />
-                    <Line type="monotone" dataKey="accZ" stroke="#EF4444" name="Z-Axis" />
+                    <XAxis dataKey="name" /><YAxis domain={[-2, 2]} />
+                    <Tooltip /><Legend />
+                    <Line type="monotone" dataKey="accX" stroke="#3B82F6" />
+                    <Line type="monotone" dataKey="accY" stroke="#10B981" />
+                    <Line type="monotone" dataKey="accZ" stroke="#EF4444" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-
               <div>
                 <h3 className="font-semibold mb-2">Gyroscope</h3>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={formatChartData(sensorData)}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis domain={[-10, 10]} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="gyroX" stroke="#8B5CF6" name="X-Axis" />
-                    <Line type="monotone" dataKey="gyroY" stroke="#F59E0B" name="Y-Axis" />
-                    <Line type="monotone" dataKey="gyroZ" stroke="#EC4899" name="Z-Axis" />
+                    <XAxis dataKey="name" /><YAxis domain={[-10, 10]} />
+                    <Tooltip /><Legend />
+                    <Line type="monotone" dataKey="gyroX" stroke="#8B5CF6" />
+                    <Line type="monotone" dataKey="gyroY" stroke="#F59E0B" />
+                    <Line type="monotone" dataKey="gyroZ" stroke="#EC4899" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            </>
           ) : (
             <div className="text-center py-12 text-muted-foreground">
-              {isCollecting ? 
-                <p>Waiting for sensor data...</p> : 
-                <p>Start data collection to see visualization</p>
-              }
+              {isCollecting ? <p>Receiving data...</p> : <p>Start recording to see visualization</p>}
             </div>
           )}
         </CardContent>
         <CardFooter>
-          <div className="w-full text-sm text-muted-foreground">
-            {isCollecting ? (
-              <p>Recording data for <span className="font-medium text-primary">{selectedActivity}</span> - {sensorData.length} data points collected</p>
-            ) : (
-              sensorData.length > 0 ? (
-                <p>Data collection paused - {sensorData.length} data points collected</p>
-              ) : (
-                <p>Select an activity and start recording to collect data</p>
-              )
-            )}
-          </div>
+          <p className="text-sm text-muted-foreground">
+            {isCollecting ? `Recording ${selectedActivity} - ${selectedSubActivity || 'No sub-activity'} | ${sensorData.length} pts` :
+              sensorData.length ? `${sensorData.length} points collected` : 'Ready to start collection'}
+          </p>
         </CardFooter>
       </Card>
     </div>
